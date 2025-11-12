@@ -1,0 +1,71 @@
+import torch.utils.data as data
+import pandas as pd
+import os
+from PIL import Image
+from torchvision import transforms
+
+# 舌苔颜色数据集
+class TongueCoatColorDataset(data.Dataset):
+    def __init__(self, img_root, label_xlsx, is_test=False, transform=None):
+        self.root = img_root
+        self.is_test = is_test
+        self.transform = transform
+        self.label_map = {'white':0, 'light_yellow':1, 'yellow':2, 'dark':3, 'regular':4, '':-1}
+        self.imgs, self.labels = self._load_xlsx(label_xlsx)
+
+    def _load_xlsx(self, label_xlsx):
+        df = pd.read_excel(label_xlsx)
+        imgs, labels = [], []
+        for _, row in df.iterrows():
+            sid = row['SID']
+            color = str(row.get('tai_color', ''))  # 适配P21/P24的列名
+            img_path = os.path.join(self.root, f"{sid}.jpg")
+            if os.path.exists(img_path):
+                imgs.append(img_path)
+                labels.append(-1 if self.is_test else self.label_map.get(color, -1))
+        return imgs, labels
+
+    def __getitem__(self, idx):
+        img = Image.open(self.imgs[idx]).convert('RGB')
+        if self.transform:
+            img = self.transform(img)
+        if self.is_test:
+            return img, os.path.basename(self.imgs[idx])
+        return img, torch.LongTensor([self.labels[idx]])
+
+    def __len__(self):
+        return len(self.imgs)
+
+# 齿痕&裂痕数据集
+class TongueDefectDataset(data.Dataset):
+    def __init__(self, img_root, label_xlsx, defect_type, is_test=False, transform=None):
+        self.root = img_root
+        self.defect_type = defect_type
+        self.is_test = is_test
+        self.transform = transform
+        self.label_map = {'light':1, 'severe':1, 'regular':0, '':0}
+        self.imgs, self.labels = self._load_xlsx(label_xlsx)
+
+    def _load_xlsx(self, label_xlsx):
+        df = pd.read_excel(label_xlsx)
+        imgs, labels = [], []
+        col = 'tooth_mk' if self.defect_type == 'tooth' else 'fissure'  # 适配齿痕/裂痕列名
+        for _, row in df.iterrows():
+            sid = row['SID']
+            defect = str(row.get(col, ''))
+            img_path = os.path.join(self.root, f"{sid}.jpg")
+            if os.path.exists(img_path):
+                imgs.append(img_path)
+                labels.append(-1 if self.is_test else self.label_map.get(defect, 0))
+        return imgs, labels
+
+    def __getitem__(self, idx):
+        img = Image.open(self.imgs[idx]).convert('RGB')
+        if self.transform:
+            img = self.transform(img)
+        if self.is_test:
+            return img, os.path.basename(self.imgs[idx])
+        return img, torch.FloatTensor([self.labels[idx]])
+
+    def __len__(self):
+        return len(self.imgs)

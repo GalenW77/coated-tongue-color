@@ -1,1 +1,0 @@
-# coated-tongue-color
