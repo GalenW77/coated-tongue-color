@@ -1,0 +1,94 @@
+import torch
+import torch.utils.data as data
+import os
+import pandas as pd
+from dataset import TongueCoatColorDataset, TongueDefectDataset
+from model import TongueCoatColorNet, TongueDefectNet
+from logger import Logger  # 复用日志模块
+
+def test_coat_color(model_path, test_xlsx, img_root, save_dir):
+    # 数据转换
+    transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    # 加载测试集
+    dataset = TongueCoatColorDataset(img_root, test_xlsx, is_test=True, transform=transform)
+    loader = data.DataLoader(dataset, batch_size=8, shuffle=False)
+    # 加载模型
+    model = TongueCoatColorNet()
+    model.load_state_dict(torch.load(model_path, map_location='cpu'))
+    model.eval()
+    # 生成结果
+    os.makedirs(save_dir, exist_ok=True)
+    logger = Logger(os.path.join(save_dir, 'coat_color_test.log'))
+    result_df = pd.DataFrame(columns=['img_name', 'white', 'light_yellow', 'yellow', 'dark', 'regular', 'pred'])
+    with torch.no_grad():
+        for imgs, names in loader:
+            outputs = model(imgs)
+            probs = outputs.numpy()
+            preds = ['white', 'light_yellow', 'yellow', 'dark', 'regular'][probs.argmax(1)]
+            for name, prob, pred in zip(names, probs, preds):
+                result_df = pd.concat([result_df, pd.DataFrame({
+                    'img_name': [name],
+                    'white': [prob[0]],
+                    'light_yellow': [prob[1]],
+                    'yellow': [prob[2]],
+                    'dark': [prob[3]],
+                    'regular': [prob[4]],
+                    'pred': [pred]
+                })], ignore_index=True)
+    result_df.to_csv(os.path.join(save_dir, 'coat_color_result.csv'), index=False)
+    logger.append(f"测试完成，结果保存至{save_dir}")
+    logger.close()
+
+def test_defect(model_path, test_xlsx, img_root, save_dir, defect_type):
+    # 数据转换
+    transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    # 加载测试集
+    dataset = TongueDefectDataset(img_root, test_xlsx, defect_type, is_test=True, transform=transform)
+    loader = data.DataLoader(dataset, batch_size=8, shuffle=False)
+    # 加载模型
+    model = TongueDefectNet(defect_type)
+    model.load_state_dict(torch.load(model_path, map_location='cpu'))
+    model.eval()
+    # 生成结果
+    os.makedirs(save_dir, exist_ok=True)
+    defect_name = '齿痕' if defect_type == 'tooth' else '裂痕'
+    logger = Logger(os.path.join(save_dir, f'{defect_name}_test.log'))
+    result_df = pd.DataFrame(columns=['img_name', 'defect_prob', 'pred'])
+    with torch.no_grad():
+        for imgs, names in loader:
+            outputs = model(imgs)
+            probs = outputs.squeeze().numpy()
+            preds = ['有缺陷' if p > 0.5 else '无缺陷' for p in probs]
+            for name, prob, pred in zip(names, probs, preds):
+                result_df = pd.concat([result_df, pd.DataFrame({
+                    'img_name': [name],
+                    'defect_prob': [prob],
+                    'pred': [pred]
+                })], ignore_index=True)
+    result_df.to_csv(os.path.join(save_dir, f'{defect_name}_result.csv'), index=False)
+    logger.append(f"测试完成，结果保存至{save_dir}")
+    logger.close()
+
+if __name__ == "__main__":
+    # 配置路径
+    COAT_MODEL = r"./checkpoints/coat_color_model.pth"
+    TOOTH_MODEL = r"./checkpoints/tooth_defect_model.pth"
+    FISSURE_MODEL = r"./checkpoints/fissure_defect_model.pth"
+    TEST_XLSX = r"C:\Users\wuboh\label_for_excel\P24_Tai_CNN.xlsx"
+    IMG_ROOT = r"C:\Users\wuboh\Desktop\label_for_excel"
+    SAVE_DIR = r"C:\Users\wuboh\Desktop\舌诊测试结果"
+
+    # 执行测试
+    test_coat_color(COAT_MODEL, TEST_XLSX, IMG_ROOT, SAVE_DIR)
+    test_defect(TOOTH_MODEL, TEST_XLSX, IMG_ROOT, SAVE_DIR, defect_type='tooth')
+    test_defect(FISSURE_MODEL, TEST_XLSX, IMG_ROOT, SAVE_DIR, defect_type='fissure')
