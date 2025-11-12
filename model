@@ -1,0 +1,46 @@
+import torch
+import torch.nn as nn
+from resnet_cbam import ChannelAttention, SpatialAttention  # 复用注意力模块
+
+# 舌苔颜色分类模型
+class TongueCoatColorNet(nn.Module):
+    def __init__(self, num_classes=5):
+        super().__init__()
+        # 高维特征融合块：1×1卷积+BN+ReLU
+        self.fusion = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(256, num_classes)
+
+    def forward(self, x):
+        x = self.fusion(x)
+        x = self.avgpool(x).flatten(1)
+        x = self.fc(x)
+        return torch.softmax(x, dim=1)
+
+# 齿痕&裂痕检测模型
+class TongueDefectNet(nn.Module):
+    def __init__(self, defect_type):
+        super().__init__()
+        self.defect_type = defect_type
+        # 高维特征融合块：1×1卷积+BN+ReLU
+        self.fusion = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        self.ca = ChannelAttention(256)
+        self.sa = SpatialAttention()
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(256, 1)
+
+    def forward(self, x):
+        x = self.fusion(x)
+        x = self.ca(x) * x
+        x = self.sa(x) * x
+        x = self.avgpool(x).flatten(1)
+        x = self.fc(x)
+        return torch.sigmoid(x)
